@@ -150,21 +150,21 @@ class BertEmbeddings(nn.Module):
 
     def forward(self, input_ids=None, position_ids=None, token_type_ids=None):
         """
-        :param input_ids:  输入序列的原始token id, shape: [batch_size, src_len]
-        :param position_ids: 位置序列，本质就是 [0,1,2,3,...,src_len-1], shape: [1,src_len]
-        :param token_type_ids: 句子分隔token, 例如[0,0,0,0,1,1,1,1]用于区分两个句子 shape:[src_len,batch_size]
+        :param input_ids:   [batch_size, src_len]
+        :param position_ids:  shape: [1,src_len]
+        :param token_type_ids:  shape:[src_len,batch_size]
         :return: [src_len, batch_size, hidden_size]
         """
         src_len = input_ids.size(1)
         token_embedding = self.word_embeddings(input_ids)
         # shape:[src_len,batch_size,hidden_size]
 
-        if position_ids is None:  # 在实际建模时这个参数其实可以不用传值
+        if position_ids is None:
             position_ids = self.position_ids[:, :src_len]  # [1,src_len]
         positional_embedding = self.position_embeddings(position_ids)
         # [src_len, 1, hidden_size]
 
-        if token_type_ids is None:  # 如果输入模型的只有一个序列，那么这个参数也不用传值
+        if token_type_ids is None:
             token_type_ids = torch.zeros_like(input_ids,
                                               device=self.position_ids.device)  # [src_len, batch_size]
         segment_embedding = self.token_type_embeddings(token_type_ids)
@@ -178,10 +178,7 @@ class BertEmbeddings(nn.Module):
 
 
 class BertSelfAttention(nn.Module):
-    """
-    实现多头注意力机制，对应的是GoogleResearch代码中的attention_layer方法
-    https://github.com/google-research/bert/blob/eedf5716ce1268e56f0a50264a88cafad334ac61/modeling.py#L558
-    """
+
 
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
@@ -190,20 +187,7 @@ class BertSelfAttention(nn.Module):
                                                           dropout=config.attention_probs_dropout_prob)
 
     def forward(self, query, key, value, attn_mask=None, key_padding_mask=None):
-        """
 
-        :param query: # [tgt_len, batch_size, hidden_size], tgt_len 表示目标序列的长度
-        :param key:  #  [src_len, batch_size, hidden_size], src_len 表示源序列的长度
-        :param value: # [src_len, batch_size, hidden_size], src_len 表示源序列的长度
-        :param attn_mask: # [tgt_len,src_len] or [num_heads*batch_size,tgt_len, src_len]
-        一般只在解码时使用，为了并行一次喂入所有解码部分的输入，所以要用mask来进行掩盖当前时刻之后的位置信息
-        在Bert中，attention_mask指代的其实是key_padding_mask，因为Bert主要是基于Transformer Encoder部分构建的，
-        所有没有Decoder部分，因此也就不需要用mask来进行掩盖当前时刻之后的位置信息
-        :param key_padding_mask: [batch_size, src_len], src_len 表示源序列的长度
-        :return:
-        attn_output: [tgt_len, batch_size, hidden_size]
-        attn_output_weights: # [batch_size, tgt_len, src_len]
-        """
         return self.multi_head_attention(query, key, value, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
 
 
@@ -388,12 +372,10 @@ class BertModel(nn.Module):
                 token_type_ids=None,
                 position_ids=None):
         """
-        ***** 一定要注意，attention_mask中，被mask的Token用1(True)表示，没有mask的用0(false)表示
-        这一点一定一定要注意
         :param input_ids:  [src_len, batch_size]
-        :param attention_mask: [batch_size, src_len] mask掉padding部分的内容
-        :param token_type_ids: [src_len, batch_size]  # 如果输入模型的只有一个序列，那么这个参数也不用传值
-        :param position_ids: [1,src_len] # 在实际建模时这个参数其实可以不用传值
+        :param attention_mask: [batch_size, src_len]
+        :param token_type_ids: [src_len, batch_size]
+        :param position_ids: [1,src_len]
         :return:
         """
         embedding_output = self.bert_embeddings(input_ids=input_ids,
@@ -402,19 +384,14 @@ class BertModel(nn.Module):
         # embedding_output: [src_len, batch_size, hidden_size]
         all_encoder_outputs = self.bert_encoder(embedding_output,
                                                 attention_mask=attention_mask)
-        # all_encoder_outputs 为一个包含有num_hidden_layers个层的输出
         sequence_output = all_encoder_outputs[-1]  # 取最后一层
         # sequence_output: [src_len, batch_size, hidden_size]
         pooled_output = self.bert_pooler(sequence_output)
-        # 默认是最后一层的first token 即[cls]位置经dense + tanh 后的结果
         # pooled_output: [batch_size, hidden_size]
         return pooled_output, all_encoder_outputs
 
     def _reset_parameters(self):
-        r"""Initiate parameters in the transformer model."""
-        """
-        初始化
-        """
+
         for p in self.parameters():
             if p.dim() > 1:
                 normal_(p, mean=0.0, std=self.config.initializer_range)

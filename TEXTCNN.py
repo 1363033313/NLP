@@ -3,11 +3,15 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-
 from torch.utils.data import DataLoader
 from torchtext.vocab import GloVe
 
 from word_embedding import load_imdb
+
+
+def _init_weights(m):
+    if type(m) in (nn.Linear, nn.Conv2d):
+        nn.init.xavier_uniform_(m.weight)
 
 
 class TextCNN(nn.Module):
@@ -16,28 +20,26 @@ class TextCNN(nn.Module):
         if kernel_sizes is None:
             kernel_sizes = [3, 4, 5]
         if num_channels is None:
-            num_channels = [100] * 3
+            num_channels = [100, 100, 100]
+        self.embedding_constant = nn.Embedding(len(vocab), 100, padding_idx=vocab['<pad>'])
         self.glove = GloVe(name="6B", dim=100)
-        self.unfrozen_embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
-                                                               padding_idx=vocab['<pad>'])
-        self.frozen_embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
-                                                             padding_idx=vocab['<pad>'],
-                                                             freeze=True)
+        self.embedding_changing = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
+                                                               padding_idx=vocab['<pad>'],
+                                                               freeze=True)
 
-        self.convs_for_unfrozen = nn.ModuleList()
-        self.convs_for_frozen = nn.ModuleList()
+        self.conv_constant = nn.ModuleList()
+        self.conv_changing = nn.ModuleList()
         for out_channels, kernel_size in zip(num_channels, kernel_sizes):
-            self.convs_for_unfrozen.append(
-                nn.Conv2d(in_channels=1, out_channels=out_channels, kernel_size=(kernel_size,embed_size)))
-            self.convs_for_frozen.append(
-                nn.Conv2d(in_channels=1, out_channels=out_channels, kernel_size=(kernel_size,embed_size)))
+            self.conv_constant.append(
+                nn.Conv2d(in_channels=1, out_channels=out_channels, kernel_size=(kernel_size, embed_size)))
+            self.conv_changing.append(
+                nn.Conv2d(in_channels=1, out_channels=out_channels, kernel_size=(kernel_size, embed_size)))
 
         self.pool = nn.AdaptiveMaxPool1d(1)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(sum(num_channels) * 2, 2)
-
-        self.apply(self._init_weights)
+        self.apply(_init_weights)
 
     def forward(self, x):
         x_unfrozen = self.unfrozen_embedding(x).unsqueeze(1)  # (batch_size, seq_len, embed_size)
@@ -52,10 +54,6 @@ class TextCNN(nn.Module):
         output = self.fc(self.dropout(feature_vector))  # (batch_size, 2)
         return output
 
-    def _init_weights(self, m):
-        # 仅对线性层和卷积层进行xavier初始化
-        if type(m) in (nn.Linear, nn.Conv1d):
-            nn.init.xavier_uniform_(m.weight)
 
 def set_seed(seed=42):
     random.seed(seed)

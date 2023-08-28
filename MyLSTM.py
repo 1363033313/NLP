@@ -18,17 +18,6 @@ def three(num_inputs, num_hiddens):
            torch.nn.Parameter(init_params((num_hiddens)))
 
 
-def get_lstm_params(embedded_size, num_hiddens):
-    num_inputs = embedded_size
-    num_outputs = 2
-    W_xi, W_hi, b_i = three(num_inputs, num_hiddens)  # 输入门参数
-    W_xf, W_hf, b_f = three(num_inputs, num_hiddens)  # 遗忘门参数
-    W_xo, W_ho, b_o = three(num_inputs, num_hiddens)  # 输出门参数
-    W_xc, W_hc, b_c = three(num_inputs, num_hiddens)  # 候选记忆元参数
-    params = [W_xi, W_hi, b_i, W_xf, W_hf, b_f, W_xo, W_ho, b_o, W_xc, W_hc, b_c]
-    return params
-
-
 def init_lstm_state(batch_size, num_hiddens, device):
     return (torch.zeros((batch_size, num_hiddens), device=device),
             torch.zeros((batch_size, num_hiddens), device=device))
@@ -50,7 +39,7 @@ def lstm_calculate(inputs, params, state):
 class LSTMModel(nn.Module):
     """A RNN Model implemented from scratch."""
 
-    def __init__(self, vocab_size, num_hiddens, device, get_params, init_state, forward_fn=lstm_calculate,
+    def __init__(self, vocab_size, num_hiddens, init_state, forward_fn=lstm_calculate,
                  embedded_size=100, *args, **kwargs):
         """Defined in :numref:`sec_rnn_scratch`"""
         super().__init__(*args, **kwargs)
@@ -60,7 +49,8 @@ class LSTMModel(nn.Module):
         self.W_xo, self.W_ho, self.b_o = three(embedded_size, num_hiddens)  # 输出门参数
         self.W_xc, self.W_hc, self.b_c = three(embedded_size, num_hiddens)  # 候选记忆元参数
         self.xavier_init()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim=embedded_size)
+        self.embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
+                                                      padding_idx=vocab['<pad>'])
         self.init_state, self.forward_fn = init_state, forward_fn
         self.dense = nn.Linear(num_hiddens, 2)
 
@@ -99,7 +89,7 @@ test_loader = DataLoader(test_data, batch_size=BATCH_SIZE)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 vocab_size, num_hiddens = len(vocab), 256
 
-model = LSTMModel(len(vocab), num_hiddens, device, get_lstm_params, init_lstm_state).to(device)
+model = LSTMModel(len(vocab), num_hiddens, init_lstm_state).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
