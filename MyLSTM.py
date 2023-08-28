@@ -1,10 +1,6 @@
 import torch
 from torch import nn
-from d2l import torch as d2l
-from torch.nn import functional as F
 from torch.utils.data import DataLoader
-from torchtext.vocab import GloVe
-
 from word_embedding import load_imdb
 
 

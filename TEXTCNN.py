@@ -6,7 +6,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torchtext.vocab import GloVe
 
-from word_embedding import load_imdb
+from word_embedding import load_imdb, set_seed
 
 
 def _init_weights(m):
@@ -26,7 +26,6 @@ class TextCNN(nn.Module):
         self.embedding_changing = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
                                                                padding_idx=vocab['<pad>'],
                                                                freeze=True)
-
         self.conv_constant = nn.ModuleList()
         self.conv_changing = nn.ModuleList()
         for out_channels, kernel_size in zip(num_channels, kernel_sizes):
@@ -42,33 +41,24 @@ class TextCNN(nn.Module):
         self.apply(_init_weights)
 
     def forward(self, x):
-        x_unfrozen = self.unfrozen_embedding(x).unsqueeze(1)  # (batch_size, seq_len, embed_size)
-        x_frozen = self.frozen_embedding(x).unsqueeze(1)  # (batch_size, embed_size, seq_len)
-        # 池化后得到的向量
-        pooled_vector_for_unfrozen = [self.pool(self.relu(conv(x_unfrozen).squeeze())).squeeze()
-                                      for conv in self.convs_for_unfrozen]  # shape of each element: (batch_size, 100)
-        pooled_vector_for_frozen = [self.pool(self.relu(conv(x_frozen).squeeze())).squeeze()
-                                    for conv in self.convs_for_frozen]  # shape of each element: (batch_size, 100)
-        # 将向量拼接起来后得到一个更长的向量
-        feature_vector = torch.cat(pooled_vector_for_unfrozen + pooled_vector_for_frozen, dim=-1)  # (batch_size, 600)
-        output = self.fc(self.dropout(feature_vector))  # (batch_size, 2)
+        x_unfrozen = self.embedding_changing(x).unsqueeze(1)  # (batch_size, seq_len, embed_size)
+        x_frozen = self.embedding_constant(x).unsqueeze(1)  # (batch_size, embed_size, seq_len)
+        pool_con = [self.pool(self.relu(conv(x_unfrozen).squeeze())).squeeze()
+                                      for conv in self.conv_changing]  #  (batch_size, 100)
+        pool_cha = [self.pool(self.relu(conv(x_frozen).squeeze())).squeeze()
+                                    for conv in self.conv_constant]  # shape of each element: (batch_size, 100)
+        feature = torch.cat(pool_con + pool_cha, dim=-1)
+        output = self.fc(self.dropout(feature))
         return output
 
 
-def set_seed(seed=42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
 
 
-set_seed()
+
+set_seed(42)
 
 batch_size = 256
-num_epochs = 20
+num_epochs = 40
 
 train_data, test_data, vocab = load_imdb()
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -79,27 +69,23 @@ model = TextCNN(vocab).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0009, weight_decay=5e-4)
 
-for epoch in range(1, num_epochs + 1):
-    print(f'Epoch {epoch}\n' + '-' * 32)
+for epoch in range(num_epochs):
     avg_train_loss = 0
     for batch_idx, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
         pred = model(X)
         loss = criterion(pred, y)
         avg_train_loss += loss
-
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if (batch_idx + 1) % 5 == 0:
-            print(f"[{(batch_idx + 1) * batch_size:>5}/{len(train_loader.dataset):>5}] train loss: {loss:.4f}")
-    print(f"Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n")
+    print(f"Epoch {epoch+1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}")
+    acc = 0
+    for X, y in test_loader:
+        with torch.no_grad():
+            X, y = X.to(device), y.to(device)
+            pred = model(X)
+            acc += (pred.argmax(1) == y).sum().item()
+    print(f"Epoch {epoch+1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")
 
-acc = 0
-for X, y in test_loader:
-    with torch.no_grad():
-        X, y = X.to(device), y.to(device)
-        pred = model(X)
-        acc += (pred.argmax(1) == y).sum().item()
 
-print(f"Accuracy: {acc / len(test_loader.dataset):.4f}")
