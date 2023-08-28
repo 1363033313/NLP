@@ -46,7 +46,6 @@ test_loader = DataLoader(test_data, batch_size=batch_size)
 model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2,
                                                       output_attentions=False, output_hidden_states=False).to(device)
 optimizer = AdamW(model.parameters(), lr=2e-5, eps=1e-8)
-
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
                                             num_training_steps=epochs * len(train_loader))
 criterion = nn.CrossEntropyLoss()
@@ -65,7 +64,6 @@ for epoch in range(epochs):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         scheduler.step()
-        print(f'{loss.item():.4f}')
     print(f'Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
     model.eval()
     acc = 0
@@ -74,4 +72,4 @@ for epoch in range(epochs):
             X, mask, y = X.to(device), mask.to(device), y.to(device)
             pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
             acc += (pred.argmax(1) == y).sum().item()
-    print(f"Accuracy: {acc / len(test_loader.dataset):.4f}")
+    print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")

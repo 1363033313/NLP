@@ -1,7 +1,10 @@
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from transformers import get_scheduler
+
 from word_embedding import load_imdb
+from torchtext.vocab import GloVe
 
 
 def init_params(shape):
@@ -32,6 +35,7 @@ def lstm_calculate(inputs, params, state):
     return H
 
 
+
 class LSTMModel(nn.Module):
     """A RNN Model implemented from scratch."""
 
@@ -45,6 +49,7 @@ class LSTMModel(nn.Module):
         self.W_xo, self.W_ho, self.b_o = three(embedded_size, num_hiddens)  # 输出门参数
         self.W_xc, self.W_hc, self.b_c = three(embedded_size, num_hiddens)  # 候选记忆元参数
         self.xavier_init()
+        self.glove = GloVe(name="6B", dim=100)
         self.embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
                                                       padding_idx=vocab['<pad>'])
         self.init_state, self.forward_fn = init_state, forward_fn
@@ -76,21 +81,21 @@ class LSTMModel(nn.Module):
         return self.init_state(batch_size, self.num_hiddens, device)
 
 
-BATCH_SIZE = 256
-LEARNING_RATE = 0.001
-NUM_EPOCHS = 14
+batch_size = 512
+lr = 0.0005
+epochs = 40
 train_data, test_data, vocab = load_imdb()
-train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-test_loader = DataLoader(test_data, batch_size=BATCH_SIZE)
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=batch_size)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 vocab_size, num_hiddens = len(vocab), 256
 
 model = LSTMModel(len(vocab), num_hiddens, init_lstm_state).to(device)
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+scheduler = get_scheduler(name="linear", optimizer=optimizer, num_warmup_steps=1000, num_training_steps=10000)
 
-for epoch in range(1, NUM_EPOCHS + 1):
-    print(f'Epoch {epoch}\n' + '-' * 32)
+for epoch in range(epochs):
     avg_train_loss = 0
     for batch_idx, (X, y) in enumerate(train_loader):
         state = model.begin_state(batch_size=X.shape[0], device=device)
@@ -98,20 +103,15 @@ for epoch in range(1, NUM_EPOCHS + 1):
         pred = model(X, state)
         loss = criterion(pred, y)
         avg_train_loss += loss
-
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        if (batch_idx + 1) % 5 == 0:
-            print(f"[{(batch_idx + 1) * BATCH_SIZE:>5}/{len(train_loader.dataset):>5}] train loss: {loss:.4f}")
-    print(f"Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n")
-
-acc = 0
-for X, y in test_loader:
-    with torch.no_grad():
-        state = model.begin_state(batch_size=X.shape[0], device=device)
-        X, y = X.to(device), y.to(device)
-        pred = model(X, state)
-        acc += (pred.argmax(1) == y).sum().item()
-print(f"Accuracy: {acc / len(test_loader.dataset):.4f}")
+    print(f"Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}")
+    acc = 0
+    for X, y in test_loader:
+        with torch.no_grad():
+            state = model.begin_state(batch_size=X.shape[0], device=device)
+            X, y = X.to(device), y.to(device)
+            pred = model(X, state)
+            acc += (pred.argmax(1) == y).sum().item()
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")

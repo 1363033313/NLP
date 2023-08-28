@@ -44,15 +44,12 @@ class TextCNN(nn.Module):
         x_unfrozen = self.embedding_changing(x).unsqueeze(1)  # (batch_size, seq_len, embed_size)
         x_frozen = self.embedding_constant(x).unsqueeze(1)  # (batch_size, embed_size, seq_len)
         pool_con = [self.pool(self.relu(conv(x_unfrozen).squeeze())).squeeze()
-                                      for conv in self.conv_changing]  #  (batch_size, 100)
+                    for conv in self.conv_changing]  # (batch_size, 100)
         pool_cha = [self.pool(self.relu(conv(x_frozen).squeeze())).squeeze()
-                                    for conv in self.conv_constant]  # shape of each element: (batch_size, 100)
+                    for conv in self.conv_constant]  # shape of each element: (batch_size, 100)
         feature = torch.cat(pool_con + pool_cha, dim=-1)
         output = self.fc(self.dropout(feature))
         return output
-
-
-
 
 
 set_seed(42)
@@ -79,13 +76,11 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-    print(f"Epoch {epoch+1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}")
+    print(f"Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}")
     acc = 0
     for X, y in test_loader:
         with torch.no_grad():
             X, y = X.to(device), y.to(device)
             pred = model(X)
             acc += (pred.argmax(1) == y).sum().item()
-    print(f"Epoch {epoch+1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")
-
-
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")

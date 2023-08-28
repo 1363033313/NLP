@@ -11,7 +11,7 @@ import logging
 
 from transformers import get_scheduler
 
-from word_embedding import load_imdb
+from word_embedding import load_imdb, load_imdb_bert
 
 
 class BertConfig(object):
@@ -401,7 +401,7 @@ batch_size = 32
 lr = 1e-4
 epochs = 40
 
-train_data, test_data, vocab = load_imdb(bert_preprocess=True)
+train_data, test_data, vocab = load_imdb_bert()
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_data, batch_size=batch_size)
 
@@ -424,13 +424,13 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         scheduler.step()
-    print(f'Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
+    print(f'Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
+    acc = 0
+    for X, y in test_loader:
+        with torch.no_grad():
+            X, y = X.to(devices), y.to(devices)
+            pred, _ = BERTNet(X)
+            acc += (pred.argmax(1) == y).sum().item()
 
-acc = 0
-for X, y in test_loader:
-    with torch.no_grad():
-        X, y = X.to(devices), y.to(devices)
-        pred, _ = BERTNet(X)
-        acc += (pred.argmax(1) == y).sum().item()
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}")
 
-print(f"Accuracy: {acc / len(test_loader.dataset):.4f}")
