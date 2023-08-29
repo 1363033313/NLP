@@ -38,7 +38,7 @@ train_data, test_data = load_imdb()
 device = torch.device('cuda')
 batch_size = 32
 learning_rate = 5e-5
-epochs = 5
+epochs = 10
 
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_data, batch_size=batch_size)
@@ -64,7 +64,7 @@ for epoch in range(epochs):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         scheduler.step()
-    print(f'Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
+    print(f'Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}')
     model.eval()
     acc = 0
     for X, mask, y in test_loader:
@@ -72,4 +72,4 @@ for epoch in range(epochs):
             X, mask, y = X.to(device), mask.to(device), y.to(device)
             pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
             acc += (pred.argmax(1) == y).sum().item()
-    print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")

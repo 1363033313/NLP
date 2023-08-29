@@ -50,8 +50,7 @@ class LSTMModel(nn.Module):
         self.W_xc, self.W_hc, self.b_c = three(embedded_size, num_hiddens)  # 候选记忆元参数
         self.xavier_init()
         self.glove = GloVe(name="6B", dim=100)
-        self.embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
-                                                      padding_idx=vocab['<pad>'])
+        self.embedding = nn.Embedding(vocab_size, embedding_dim=100)
         self.init_state, self.forward_fn = init_state, forward_fn
         self.dense = nn.Linear(num_hiddens, 2)
 
@@ -81,9 +80,9 @@ class LSTMModel(nn.Module):
         return self.init_state(batch_size, self.num_hiddens, device)
 
 
-batch_size = 512
-lr = 0.0005
-epochs = 40
+batch_size = 1024
+lr = 0.001
+epochs = 50
 train_data, test_data, vocab = load_imdb()
 train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_data, batch_size=batch_size)
@@ -93,7 +92,6 @@ vocab_size, num_hiddens = len(vocab), 256
 model = LSTMModel(len(vocab), num_hiddens, init_lstm_state).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-scheduler = get_scheduler(name="linear", optimizer=optimizer, num_warmup_steps=1000, num_training_steps=10000)
 
 for epoch in range(epochs):
     avg_train_loss = 0

@@ -20,8 +20,8 @@ class BertConfig(object):
     def __init__(self,
                  vocab,
                  hidden_size=100,
-                 num_hidden_layers=6,
-                 num_attention_heads=4,
+                 num_hidden_layers=12,
+                 num_attention_heads=10,
                  intermediate_size=1024,
                  hidden_act="gelu",
                  hidden_dropout_prob=0.1,
@@ -179,7 +179,6 @@ class BertEmbeddings(nn.Module):
 
 class BertSelfAttention(nn.Module):
 
-
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
         self.multi_head_attention = nn.MultiheadAttention(embed_dim=config.hidden_size,
@@ -187,7 +186,6 @@ class BertSelfAttention(nn.Module):
                                                           dropout=config.attention_probs_dropout_prob)
 
     def forward(self, query, key, value, attn_mask=None, key_padding_mask=None):
-
         return self.multi_head_attention(query, key, value, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
 
 
@@ -397,7 +395,7 @@ class BertModel(nn.Module):
                 normal_(p, mean=0.0, std=self.config.initializer_range)
 
 
-batch_size = 32
+batch_size = 64
 lr = 1e-4
 epochs = 40
 
@@ -413,7 +411,6 @@ optimizer = torch.optim.AdamW(BERTNet.parameters(), lr=lr, betas=(0.9, 0.999), e
 scheduler = get_scheduler(name="linear", optimizer=optimizer, num_warmup_steps=1000, num_training_steps=10000)
 
 for epoch in range(epochs):
-    print(f'Epoch {epoch + 1}:' )
     avg_train_loss = 0
     for batch_idx, (X, y) in enumerate(train_loader):
         X, y = X.to(devices), y.to(devices)
@@ -424,7 +421,7 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         scheduler.step()
-    print(f'Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
+    print(f'Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}')
     acc = 0
     for X, y in test_loader:
         with torch.no_grad():
@@ -432,5 +429,4 @@ for epoch in range(epochs):
             pred, _ = BERTNet(X)
             acc += (pred.argmax(1) == y).sum().item()
 
-    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}")
-
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")

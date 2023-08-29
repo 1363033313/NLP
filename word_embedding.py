@@ -44,17 +44,17 @@ def build_dataset_bert(reviews, labels, vocab, max_len=512):
     return dataset
 
 
-def load_imdb(bert_preprocess=False):
+def load_imdb():
     reviews_train, labels_train = read_imdb(is_train=True)
     reviews_test, labels_test = read_imdb(is_train=False)
     vocab = build_vocab_from_iterator(reviews_train, min_freq=3, specials=['<pad>', '<unk>', '<cls>', '<sep>'])
     vocab.set_default_index(vocab['<unk>'])
-    train_data = build_dataset(reviews_train, labels_train, vocab, bert_preprocess=bert_preprocess)
-    test_data = build_dataset(reviews_test, labels_test, vocab, bert_preprocess=bert_preprocess)
+    train_data = build_dataset(reviews_train, labels_train, vocab)
+    test_data = build_dataset(reviews_test, labels_test, vocab)
     return train_data, test_data, vocab
 
 
-def load_imdb_bert(bert_preprocess=False):
+def load_imdb_bert():
     reviews_train, labels_train = read_imdb(is_train=True)
     reviews_test, labels_test = read_imdb(is_train=False)
     vocab = build_vocab_from_iterator(reviews_train, min_freq=3, specials=['<pad>', '<unk>', '<cls>', '<sep>'])

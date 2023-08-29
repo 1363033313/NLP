@@ -205,9 +205,11 @@ for epoch in range(epochs):
 
 ```
 
-训练的结果如下
+训练的结果如下：
 
-![]()
+![](D:\dlstudy\NLP\img\MyLSTM.png)
+
+真的很怪，训练了很多次损失就是不下降，一直在0.69-0.67之间波动，但上图这次又不知道为什么正常了起来，可能这就是炼丹吧（）
 
 ### $TextCNN$的实现
 
@@ -256,6 +258,10 @@ self.pool = nn.AdaptiveMaxPool1d(1)
         self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(sum(num_channels) * 2, 2)
 ```
+
+![](D:\dlstudy\NLP\img\TextCNN.png)
+
+
 
 ### $BERT$的实现
 
@@ -325,3 +331,490 @@ class BertConfig(object):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
 ```
+
+#### Input Embedding
+
+Input Embedding=PositionalEmbedding(位置编码)+TokenEmbedding（词向量）+SegmentEmbedding（区分句子）
+
+
+
+```python
+class PositionalEmbedding(nn.Module):
+
+    def __init__(self, hidden_size, max_position_embeddings=512, initializer_range=0.02):
+        super(PositionalEmbedding, self).__init__()
+        # BERT预训练模型的长度为512
+        self.embedding = nn.Embedding(max_position_embeddings, hidden_size)
+        self._reset_parameters(initializer_range)
+
+    def forward(self, position_ids):  # [1,position_ids_len]
+        return self.embedding(position_ids).transpose(0, 1)  # [position_ids_len, 1, hidden_size]
+
+    def _reset_parameters(self, initializer_range):
+        for p in self.parameters():
+            if p.dim() > 1:
+                normal_(p, mean=0.0, std=initializer_range)
+
+
+class TokenEmbedding(nn.Module):
+    def __init__(self, vocab, hidden_size):
+        super(TokenEmbedding, self).__init__()
+        self.glove = GloVe(name="6B", dim=100)
+        self.embedding = nn.Embedding.from_pretrained(self.glove.get_vecs_by_tokens(vocab.get_itos()),
+                                                      padding_idx=vocab['<pad>'])
+
+    def forward(self, input_ids):  # [batch_size, input_ids_len]
+        return self.embedding(input_ids).transpose(0, 1)  # [input_ids_len, batch_size, hidden_size]
+
+
+class SegmentEmbedding(nn.Module):
+    def __init__(self, type_vocab_size, hidden_size, initializer_range=0.02):
+        super(SegmentEmbedding, self).__init__()
+        self.embedding = nn.Embedding(type_vocab_size, hidden_size)
+        self._reset_parameters(initializer_range)
+
+    def forward(self, token_type_ids):  # [batch_size, token_type_ids_len ]
+        return self.embedding(token_type_ids).transpose(0, 1)  # [token_type_ids_len, batch_size, hidden_size]
+
+    def _reset_parameters(self, initializer_range):
+        for p in self.parameters():
+            if p.dim() > 1:
+                normal_(p, mean=0.0, std=initializer_range)
+
+
+class BertEmbeddings(nn.Module):
+    """
+    BERT Embedding which is consisted with under features
+        1. TokenEmbedding : normal embedding matrix
+        2. PositionalEmbedding : normal embedding matrix
+        2. SegmentEmbedding : adding sentence segment info, (sent_A:1, sent_B:2)
+        sum of all these features are output of BERTEmbedding
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.word_embeddings = TokenEmbedding(vocab=config.vocab,
+                                              hidden_size=config.hidden_size)
+        # return shape [src_len,batch_size,hidden_size]
+
+        self.position_embeddings = PositionalEmbedding(max_position_embeddings=config.max_position_embeddings,
+                                                       hidden_size=config.hidden_size,
+                                                       initializer_range=config.initializer_range)
+        # return shape [src_len,1,hidden_size]
+
+        self.token_type_embeddings = SegmentEmbedding(type_vocab_size=config.type_vocab_size,
+                                                      hidden_size=config.hidden_size,
+                                                      initializer_range=config.initializer_range)
+        # return shape  [src_len,batch_size,hidden_size]
+
+        self.LayerNorm = nn.LayerNorm(config.hidden_size)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.register_buffer("position_ids",
+                             torch.arange(config.max_position_embeddings).expand((1, -1)))
+        # shape: [1, max_position_embeddings]
+
+    def forward(self, input_ids=None, position_ids=None, token_type_ids=None):
+        """
+        :param input_ids:   [batch_size, src_len]
+        :param position_ids:  shape: [1,src_len]
+        :param token_type_ids:  shape:[src_len,batch_size]
+        :return: [src_len, batch_size, hidden_size]
+        """
+        src_len = input_ids.size(1)
+        token_embedding = self.word_embeddings(input_ids)
+        # shape:[src_len,batch_size,hidden_size]
+
+        if position_ids is None:
+            position_ids = self.position_ids[:, :src_len]  # [1,src_len]
+        positional_embedding = self.position_embeddings(position_ids)
+        # [src_len, 1, hidden_size]
+
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(input_ids,
+                                              device=self.position_ids.device)  # [src_len, batch_size]
+        segment_embedding = self.token_type_embeddings(token_type_ids)
+        # [src_len,batch_size,hidden_size]
+
+        embeddings = token_embedding + positional_embedding + segment_embedding
+        # [src_len,batch_size,hidden_size] + [src_len,1,hidden_size] + [src_len,batch_size,hidden_size]
+        embeddings = self.LayerNorm(embeddings)  # [src_len, batch_size, hidden_size]
+        embeddings = self.dropout(embeddings)
+        return embeddings
+```
+
+#### BertAttention 实现
+
+核心就是在 Transformer 中所提出来的 self-attention 机制
+
+```python
+class BertSelfAttention(nn.Module):
+
+    def __init__(self, config):
+        super(BertSelfAttention, self).__init__()
+        self.multi_head_attention = nn.MultiheadAttention(embed_dim=config.hidden_size,
+                                                          num_heads=config.num_attention_heads,
+                                                          dropout=config.attention_probs_dropout_prob)
+
+    def forward(self, query, key, value, attn_mask=None, key_padding_mask=None):
+        return self.multi_head_attention(query, key, value, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+
+
+class BertSelfOutput(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, input_tensor):
+        """
+        :param hidden_states: [src_len, batch_size, hidden_size]
+        :param input_tensor: [src_len, batch_size, hidden_size]
+        :return: [src_len, batch_size, hidden_size]
+        """
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
+
+
+def get_activation(activation_string):
+    act = activation_string.lower()
+    if act == "linear":
+        return None
+    elif act == "relu":
+        return nn.ReLU()
+    elif act == "gelu":
+        return nn.GELU()
+    elif act == "tanh":
+        return nn.Tanh()
+    else:
+        raise ValueError("Unsupported activation: %s" % act)
+
+
+class BertAttention(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.self = BertSelfAttention(config)
+        self.output = BertSelfOutput(config)
+
+    def forward(self,
+                hidden_states,
+                attention_mask=None):
+        """
+
+        :param hidden_states: [src_len, batch_size, hidden_size]
+        :param attention_mask: [batch_size, src_len]
+        :return: [src_len, batch_size, hidden_size]
+        """
+        self_outputs = self.self(hidden_states,
+                                 hidden_states,
+                                 hidden_states,
+                                 attn_mask=None,
+                                 key_padding_mask=attention_mask)
+        # self_outputs[0] shape: [src_len, batch_size, hidden_size]
+        attention_output = self.output(self_outputs[0], hidden_states)
+        return attention_output
+```
+
+#### FFN的实现
+
+实际上就是一个MLP
+
+```python
+class BertIntermediate(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
+        if isinstance(config.hidden_act, str):
+            self.intermediate_act_fn = get_activation(config.hidden_act)
+        else:
+            self.intermediate_act_fn = config.hidden_act
+
+    def forward(self, hidden_states):
+        """
+
+        :param hidden_states: [src_len, batch_size, hidden_size]
+        :return: [src_len, batch_size, intermediate_size]
+        """
+        hidden_states = self.dense(hidden_states)  # [src_len, batch_size, intermediate_size]
+        if self.intermediate_act_fn is None:
+            hidden_states = hidden_states
+        else:
+            hidden_states = self.intermediate_act_fn(hidden_states)
+        return hidden_states
+
+
+class BertOutput(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, input_tensor):
+        """
+
+        :param hidden_states: [src_len, batch_size, intermediate_size]
+        :param input_tensor: [src_len, batch_size, hidden_size]
+        :return: [src_len, batch_size, hidden_size]
+        """
+        hidden_states = self.dense(hidden_states)  # [src_len, batch_size, hidden_size]
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
+```
+
+#### 组装Encoder
+
+把以上组件组装起来就可以了
+
+```python
+class BertLayer(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.bert_attention = BertAttention(config)
+        self.bert_intermediate = BertIntermediate(config)
+        self.bert_output = BertOutput(config)
+
+    def forward(self, hidden_states, attention_mask=None):
+        """
+
+        :param hidden_states: [src_len, batch_size, hidden_size]
+        :param attention_mask: [batch_size, src_len] mask掉padding部分的内容
+        :return: [src_len, batch_size, hidden_size]
+        """
+        attention_output = self.bert_attention(hidden_states, attention_mask)
+        # [src_len, batch_size, hidden_size]
+        intermediate_output = self.bert_intermediate(attention_output)
+        # [src_len, batch_size, intermediate_size]
+        layer_output = self.bert_output(intermediate_output, attention_output)
+        # [src_len, batch_size, hidden_size]
+        return layer_output
+
+
+class BertEncoder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.bert_layers = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
+
+    def forward(
+            self,
+            hidden_states,
+            attention_mask=None):
+        """
+
+        :param hidden_states: [src_len, batch_size, hidden_size]
+        :param attention_mask: [batch_size, src_len]
+        :return:
+        """
+        all_encoder_layers = []
+        layer_output = hidden_states
+        for i, layer_module in enumerate(self.bert_layers):
+            layer_output = layer_module(layer_output,
+                                        attention_mask)
+            #  [src_len, batch_size, hidden_size]
+            all_encoder_layers.append(layer_output)
+        return all_encoder_layers
+```
+
+#### 池化输出
+
+对最后的隐藏状态进行平均池化，加上dense层得到输出
+
+```python
+class BertPooler(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, 2)
+        self.activation = nn.Tanh()
+        self.config = config
+
+    def forward(self, hidden_states):
+        """
+
+        :param hidden_states:  [src_len, batch_size, hidden_size]
+        :return: [batch_size, hidden_size]
+        """
+        token_tensor = torch.mean(hidden_states, dim=0)
+        pooled_output = self.dense(token_tensor)  # [batch_size, hidden_size]
+        return pooled_oeutput  # [batch_size, 2]
+```
+
+#### BERT模型实现
+
+组装Embedding+Encoder+Pool
+
+```python
+class BertModel(nn.Module):
+    def __init__(self, config, *args, **kwargs):
+        super().__init__()
+        self.bert_embeddings = BertEmbeddings(config)
+        self.bert_encoder = BertEncoder(config)
+        self.bert_pooler = BertPooler(config)
+        self.config = config
+        self._reset_parameters()
+
+    def forward(self,
+                input_ids=None,
+                attention_mask=None,
+                token_type_ids=None,
+                position_ids=None):
+        """
+        :param input_ids:  [src_len, batch_size]
+        :param attention_mask: [batch_size, src_len]
+        :param token_type_ids: [src_len, batch_size]
+        :param position_ids: [1,src_len]
+        :return:
+        """
+        embedding_output = self.bert_embeddings(input_ids=input_ids,
+                                                position_ids=position_ids,
+                                                token_type_ids=token_type_ids)
+        # embedding_output: [src_len, batch_size, hidden_size]
+        all_encoder_outputs = self.bert_encoder(embedding_output,
+                                                attention_mask=attention_mask)
+        sequence_output = all_encoder_outputs[-1]  # 取最后一层
+        # sequence_output: [src_len, batch_size, hidden_size]
+        pooled_output = self.bert_pooler(sequence_output)
+        # pooled_output: [batch_size, hidden_size]
+        return pooled_output, all_encoder_outputs
+
+    def _reset_parameters(self):
+
+        for p in self.parameters():
+            if p.dim() > 1:
+                normal_(p, mean=0.0, std=self.config.initializer_range)
+```
+
+#### 训练代码
+
+训练集有所不同，句首加上了[CLS]句尾加上了[SEP]，与论文相同
+
+scheduler不加不行，不加的话损失一直降不下去（）
+
+```python
+batch_size = 64
+lr = 1e-4
+epochs = 40
+
+train_data, test_data, vocab = load_imdb_bert()
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=batch_size)
+
+devices = 'cuda'
+config = BertConfig(vocab)
+BERTNet = BertModel(config).to(devices)
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.AdamW(BERTNet.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-9, weight_decay=0.01)
+scheduler = get_scheduler(name="linear", optimizer=optimizer, num_warmup_steps=1000, num_training_steps=10000)
+
+for epoch in range(epochs):
+    avg_train_loss = 0
+    for batch_idx, (X, y) in enumerate(train_loader):
+        X, y = X.to(devices), y.to(devices)
+        pred, _ = BERTNet(X)
+        loss = criterion(pred, y)
+        avg_train_loss += loss
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+    print(f'Epoch {epoch + 1} Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}')
+    acc = 0
+    for X, y in test_loader:
+        with torch.no_grad():
+            X, y = X.to(devices), y.to(devices)
+            pred, _ = BERTNet(X)
+            acc += (pred.argmax(1) == y).sum().item()
+
+    print(f"Epoch {epoch + 1} Test Accuracy: {acc / len(test_loader.dataset):.4f}\n")
+```
+
+训练的结果大致如下，确实效果比较一般（）：
+
+![](D:\dlstudy\NLP\img\bert.png)
+
+### Fine-tune
+
+可以调库就比较轻松了，调用预选连模型和分词器训练就可以了，修改了一下数据集的载入
+
+```python
+import os
+
+import torch
+import torch.nn as nn
+from torch.optim import AdamW
+
+from torch.utils.data import TensorDataset, Dataset, DataLoader
+from transformers import BertForSequenceClassification, get_linear_schedule_with_warmup, BertTokenizer
+
+from word_embedding import set_seed
+
+
+def read_imdb(path='./aclImdb', is_train=True):
+    reviews, labels = [], []
+    for label in ['pos', 'neg']:
+        folder_name = os.path.join(path, 'train' if is_train else 'test', label)
+        for filename in os.listdir(folder_name):
+            with open(os.path.join(folder_name, filename), mode='r', encoding='utf-8') as f:
+                reviews.append(f.read())
+                labels.append(1 if label == 'pos' else 0)
+    return reviews, labels
+
+
+def load_imdb():
+    train, train_labels = read_imdb(is_train=True)
+    test, test_labels = read_imdb(is_train=False)
+    tokenizer = BertTokenizer.from_pretrained("bert-base-cased")
+    train_data = tokenizer(train, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    test_data = tokenizer(test, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    train_dataset = TensorDataset(train_data['input_ids'], train_data['attention_mask'], torch.tensor(train_labels))
+    test_dataset = TensorDataset(test_data['input_ids'], test_data['attention_mask'], torch.tensor(test_labels))
+    return train_dataset, test_dataset
+
+
+set_seed(42)
+
+train_data, test_data = load_imdb()
+device = torch.device('cuda')
+batch_size = 32
+learning_rate = 5e-5
+epochs = 5
+
+train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=batch_size)
+
+model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=2,
+                                                      output_attentions=False, output_hidden_states=False).to(device)
+optimizer = AdamW(model.parameters(), lr=2e-5, eps=1e-8)
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
+                                            num_training_steps=epochs * len(train_loader))
+criterion = nn.CrossEntropyLoss()
+
+for epoch in range(epochs):
+    model.train()
+    print(f'Epoch {epoch + 1}:')
+    avg_train_loss = 0
+    for batch_idx, (X, mask, y) in enumerate(train_loader):
+        X, mask, y = X.to(device), mask.to(device), y.to(device)
+        pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
+        loss = criterion(pred, y)
+        avg_train_loss += loss
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+    print(f'Avg train loss: {avg_train_loss / (batch_idx + 1):.4f}\n')
+    model.eval()
+    acc = 0
+    for X, mask, y in test_loader:
+        with torch.no_grad():
+            X, mask, y = X.to(device), mask.to(device), y.to(device)
+            pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
+            acc += (pred.argmax(1) == y).sum().item()
+    print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
+```
+
+![](D:\dlstudy\NLP\img\Fine_tune.png)
+
+fine_tune效果也比较一般（）
