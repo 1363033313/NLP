@@ -207,7 +207,7 @@ for epoch in range(epochs):
 
 训练的结果如下：
 
-![](D:\dlstudy\NLP\img\MyLSTM.png)
+![](.\img\MyLSTM.png)
 
 真的很怪，训练了很多次损失就是不下降，一直在0.69-0.67之间波动，但上图这次又不知道为什么正常了起来，可能这就是炼丹吧（）
 
@@ -259,7 +259,7 @@ self.pool = nn.AdaptiveMaxPool1d(1)
         self.fc = nn.Linear(sum(num_channels) * 2, 2)
 ```
 
-![](D:\dlstudy\NLP\img\TextCNN.png)
+![](.\img\TextCNN.png)
 
 
 
@@ -731,7 +731,7 @@ for epoch in range(epochs):
 
 训练的结果大致如下，确实效果比较一般（）：
 
-![](D:\dlstudy\NLP\img\bert.png)
+![](D:.\img\bert.png)
 
 ### Fine-tune
 
@@ -815,7 +815,7 @@ for epoch in range(epochs):
     print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
 ```
 
-![    ](D:\dlstudy\NLP\img\Fine_tune.png)
+![    ](D:\.\img\Fine_tune.png)
 
 fine_tune效果也比较一般（）
 
@@ -823,7 +823,7 @@ fine_tune效果也比较一般（）
 
 效果出奇的好？一个epoch就达到了95%的准确率
 
-![](D:\dlstudy\NLP\img\fine_tune_gpt2.png)
+![](.\img\fine_tune_gpt2.png)
 
 ### BERT和GPT的区别
 
