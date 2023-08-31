@@ -809,15 +809,21 @@ for epoch in range(epochs):
     acc = 0
     for X, mask, y in test_loader:
         with torch.no_grad():
-            X, mask, y = X.to(device), mask.to(device), y.to(device)
-            pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
-            acc += (pred.argmax(1) == y).sum().item()
+           X, mask, y = X.to(device), mask.to(device), y.to(device)
+           pred = model(X, token_type_ids=None, attention_mask=mask, labels=y).logits
+           acc += (pred.argmax(1) == y).sum().item()
     print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
 ```
 
-![	](D:\dlstudy\NLP\img\Fine_tune.png)
+![    ](D:\dlstudy\NLP\img\Fine_tune.png)
 
 fine_tune效果也比较一般（）
+
+### Fine_tune_GPT2
+
+效果出奇的好？一个epoch就达到了95%的准确率
+
+![](D:\dlstudy\NLP\img\fine_tune_gpt2.png)
 
 ### BERT和GPT的区别
 
