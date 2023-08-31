@@ -814,8 +814,8 @@ for epoch in range(epochs):
            acc += (pred.argmax(1) == y).sum().item()
     print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
 ```
-
-![    ](D:\.\img\Fine_tune.png)
+fine_tune效果也比较一般（）:
+![](D:\.\img\fine_tune.png)
 
 fine_tune效果也比较一般（）
 
