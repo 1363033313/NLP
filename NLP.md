@@ -815,6 +815,14 @@ for epoch in range(epochs):
     print(f"Accuracy: {acc / len(test_loader.dataset):.4f}\n")
 ```
 
-![](D:\dlstudy\NLP\img\Fine_tune.png)
+![	](D:\dlstudy\NLP\img\Fine_tune.png)
 
 fine_tune效果也比较一般（）
+
+### BERT和GPT的区别
+
+1. BERT是Transformer编码器，GPT是Transformer解码器
+2. 预训练差距比较大，BERT是做完形填空，GPT在做预测未来（标准的语言模型），后者显然要更难一些，这可能也是GPT的效果要比BERT差一些的原因之一吧
+
+
+
